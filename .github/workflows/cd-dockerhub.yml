@@ -1,0 +1,53 @@
+name: CD Docker Hub
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-test-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cài thư viện (để chạy test)
+        run: npm ci
+
+      # Healthcheck trong bước CI: --wait chờ tới khi mọi container healthy
+      - name: Build và chạy Docker Compose, chờ healthy
+        run: docker compose up -d --build --wait --wait-timeout 120
+
+      - name: Test CRUD trên container
+        run: npm run test:integration
+        env:
+          BASE_URL: http://localhost:3000
+
+      - name: In log khi lỗi
+        if: failure()
+        run: docker compose logs
+
+      - name: Dọn dẹp
+        if: always()
+        run: docker compose down -v
+
+      # Chỉ tới đây (test + healthcheck đã pass) mới đẩy image lên Docker Hub
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/product-api:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/product-api:${{ github.sha }}

@@ -1,0 +1,61 @@
+name: Test Product CI Prod
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  crud-test:
+    runs-on: ubuntu-latest
+
+    # MongoDB chạy như service container trên máy ảo GitHub
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PORT: 3000
+      MONGO_URI: mongodb://localhost:27017/productdb_ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cài thư viện
+        run: npm ci
+
+      - name: Chạy product-api nền
+        run: nohup node server.js > server.log 2>&1 &
+
+      - name: Chờ health check
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:3000/health; then
+              echo
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API không healthy"
+          cat server.log
+          exit 1
+
+      - name: Test CRUD trên API thật
+        run: npm run test:integration
+
+      - name: In log khi lỗi
+        if: failure()
+        run: cat server.log
