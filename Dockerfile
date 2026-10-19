@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Copy package*.json trước để tận dụng cache layer khi chỉ sửa code
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 COPY . .
 
